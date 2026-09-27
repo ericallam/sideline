@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { BTN, openApp, startMatch, press, hold, advance, stored, count } = require('./helpers');
+const { BTN, openApp, startMatch, press, hold, stick, advance, stored, count } = require('./helpers');
 
 test.beforeEach(async ({ page }) => {
   await openApp(page);
@@ -198,4 +198,74 @@ test('saved matches with a period 3 fold into the 2nd half', async ({ page }) =>
   expect(h.events.map(e => [e.period, e.ms])).toEqual([[1, min], [2, min], [2, 3 * min]]);
   expect(h.subs.map(s => [s.period, s.ms])).toEqual([[2, 2 * min], [2, 3 * min]]);
   expect(await page.evaluate(() => minutesOn(state.history[0]).total)).toBe(31 * min);
+});
+
+test('an assist adds a team goal; undo and redo move both', async ({ page }) => {
+  await startMatch(page);
+  await press(page, BTN.L1);
+  await expect(page.locator('#score-us')).toHaveText('1');
+  expect((await stored(page)).current.score).toHaveLength(1);
+
+  await press(page, BTN.DOWN);
+  await expect(page.locator('#score-us')).toHaveText('0');
+  expect((await stored(page)).current.score).toHaveLength(0);
+
+  await press(page, BTN.UP);
+  await expect(page.locator('#score-us')).toHaveText('1');
+  expect(await count(page, 'assist')).toBe('1');
+});
+
+test('left stick HUD: hold left or right and press cross for a team goal', async ({ page }) => {
+  await startMatch(page, { team: 'Lions', opponent: 'Rovers' });
+  await stick(page, -0.9, 0.2);
+  await expect(page.locator('#hud')).toHaveClass(/show/);
+  await expect(page.locator('.hud-half[data-side="us"]')).toHaveClass(/on/);
+  await press(page, BTN.CROSS);
+  await expect(page.locator('#score-us')).toHaveText('1');
+  expect(await count(page, 'pass')).toBe('0'); // cross scored instead of logging a pass
+
+  await press(page, BTN.CIRCLE); // other stats wait while the HUD is up
+  expect(await count(page, 'touch')).toBe('0');
+
+  await stick(page, 0.8, -0.3);
+  await press(page, BTN.CROSS);
+  await expect(page.locator('#score-them')).toHaveText('1');
+
+  await stick(page, 0, -1); // straight up is neither side
+  await press(page, BTN.CROSS);
+  await expect(page.locator('#score-us')).toHaveText('1');
+  await expect(page.locator('#score-them')).toHaveText('1');
+
+  await stick(page, 0, 0);
+  await expect(page.locator('#hud')).not.toHaveClass(/show/);
+  await press(page, BTN.CROSS);
+  expect(await count(page, 'pass')).toBe('1');
+  expect((await stored(page)).current.score.map(x => x.side)).toEqual(['us', 'them']);
+});
+
+test('undo and redo include team goals, newest first', async ({ page }) => {
+  await startMatch(page);
+  await stick(page, 0.9, 0);
+  await press(page, BTN.CROSS); // opponent goal
+  await stick(page, 0, 0);
+  await press(page, BTN.CROSS); // pass
+  await page.click('#btn-score');
+  await page.click('[data-score="add:us"]'); // teammate goal from the sheet
+  await page.click('#sheet-done');
+  await expect(page.locator('#score-us')).toHaveText('1');
+
+  await press(page, BTN.DOWN); // teammate goal
+  await expect(page.locator('#score-us')).toHaveText('0');
+  expect(await count(page, 'pass')).toBe('1');
+  await press(page, BTN.DOWN); // pass
+  expect(await count(page, 'pass')).toBe('0');
+  await press(page, BTN.DOWN); // opponent goal
+  await expect(page.locator('#score-them')).toHaveText('0');
+
+  await press(page, BTN.UP);
+  await expect(page.locator('#score-them')).toHaveText('1');
+  await press(page, BTN.UP);
+  await press(page, BTN.UP);
+  await expect(page.locator('#score-us')).toHaveText('1');
+  expect(await count(page, 'pass')).toBe('1');
 });

@@ -33,7 +33,7 @@ const TILES = [
   { total: 'shot',   label: 'Shots',        event: 'shot',   hint: 'Missed or blocked' },
   { total: 'onGoal', label: 'Shots on goal', event: 'onGoal', hint: 'Saved' },
   { total: 'goal',   label: 'Goals',        event: 'goal',   hint: 'Scored' },
-  { total: 'assist', label: 'Assists',      event: 'assist', hint: 'Pass that led to a goal' },
+  { total: 'assist', label: 'Assists',      event: 'assist', hint: 'Pass that led to a goal, adds a team goal' },
 ];
 
 const TOTAL_ORDER = ['goal', 'assist', 'shot', 'onGoal', 'pass', 'tackle', 'touch'];
@@ -177,9 +177,18 @@ function addScore(side) {
   if (!m) return;
   m.score = m.score || [];
   m.score.push({ side, ...stamp(m) });
+  m.redo = []; // a new goal ends the redo chain
   save();
   renderScore();
   renderLog();
+}
+
+// An assist means a teammate scored, so it carries a team goal with it
+function linkAssistGoal(m, ev, on) {
+  if (ev.type !== 'assist') return;
+  m.score = m.score || [];
+  if (on) m.score.push({ side: 'us', period: ev.period, ms: ev.ms, at: ev.at, assist: true });
+  else m.score = m.score.filter(x => !(x.assist && x.at === ev.at));
 }
 
 function removeScore(side) {
@@ -305,10 +314,13 @@ function logEvent(type) {
     toast('On the bench. Press d-pad left when he comes on.');
     return;
   }
-  m.events.push({ type, period: m.period, ms: elapsedMs(m), at: Date.now() });
+  const ev = { type, period: m.period, ms: elapsedMs(m), at: Date.now() };
+  m.events.push(ev);
+  linkAssistGoal(m, ev, true);
   m.redo = []; // a new stat ends the redo chain
   save();
   renderCounts();
+  renderScore();
   renderLog();
   for (const k of EVENTS[type].counts) flash(k);
   rumble(type === 'goal' ? 'long' : 'tap');
@@ -329,33 +341,50 @@ function reopenMatch() {
   toast(`Back to the ${periodLabel(m.period).toLowerCase()}`);
 }
 
-// Undo walks back through stats and Options steps together, newest first
+function sideName(m, side) { return side === 'us' ? teamName(m) : oppName(m); }
+
+// Undo walks back through stats, team goals and Options steps together, newest first.
+// Goals added by an assist go with the assist.
 function undo() {
   const m = state.current;
-  const step = m && m.steps && m.steps[m.steps.length - 1];
-  const last = m && m.events[m.events.length - 1];
-  if (step && step.at > (last ? last.at : 0)) {
+  if (!m) return;
+  const step = m.steps && m.steps[m.steps.length - 1];
+  const ev = m.events[m.events.length - 1];
+  const gi = (m.score || []).findLastIndex(x => !x.assist);
+  const goal = gi >= 0 ? m.score[gi] : null;
+  const newest = [step, ev, goal].filter(Boolean).sort((a, b) => b.at - a.at)[0];
+  if (!newest) { rumble('double'); return; }
+  m.redo = m.redo || [];
+
+  if (newest === step) {
     m.steps.pop();
     Object.assign(m, step.prev);
-    (m.redo = m.redo || []).push({ step });
+    m.redo.push({ step });
     save();
     renderLive();
     toast(`Undid ${STEP_NAME[step.kind]}`);
-    rumble('double');
-    return;
+  } else if (newest === goal) {
+    m.score.splice(gi, 1);
+    m.redo.push({ goal });
+    save();
+    renderScore();
+    renderLog();
+    toast(`Removed ${sideName(m, goal.side)} goal`);
+  } else {
+    m.events.pop();
+    linkAssistGoal(m, ev, false);
+    m.redo.push(ev);
+    save();
+    renderCounts();
+    renderScore();
+    renderLog();
+    flash(EVENTS[ev.type].counts[0]);
+    toast(`Removed ${EVENTS[ev.type].label.toLowerCase()}`);
   }
-  if (!m || !m.events.length) { rumble('double'); return; }
-  const ev = m.events.pop();
-  (m.redo = m.redo || []).push(ev);
-  save();
-  renderCounts();
-  renderLog();
-  flash(EVENTS[ev.type].counts[0]);
-  toast(`Removed ${EVENTS[ev.type].label.toLowerCase()}`);
   rumble('double');
 }
 
-// Puts back the most recently undone stat, with its original time
+// Puts back the most recently undone stat, goal or step, with its original time
 function redo() {
   const m = state.current;
   if (!m || !m.redo || !m.redo.length) { rumble('double'); toast('Nothing to redo'); return; }
@@ -369,9 +398,20 @@ function redo() {
     rumble('tap');
     return;
   }
+  if (ev.goal) {
+    (m.score = m.score || []).push(ev.goal);
+    save();
+    renderScore();
+    renderLog();
+    toast(`Restored ${sideName(m, ev.goal.side)} goal`);
+    rumble('long');
+    return;
+  }
   m.events.push(ev);
+  linkAssistGoal(m, ev, true);
   save();
   renderCounts();
+  renderScore();
   renderLog();
   for (const k of EVENTS[ev.type].counts) flash(k);
   toast(`Restored ${EVENTS[ev.type].label.toLowerCase()}`);
@@ -413,6 +453,7 @@ function pollPads() {
     const prev = lastPressed.get(gp.index) || [];
     const now = readPressed(gp, prev);
     if (!resync) {
+      if (gp === found) updateHud(gp);
       for (let i = 0; i < now.length; i++) {
         if (now[i] && !prev[i]) onButton(i);
       }
@@ -428,6 +469,8 @@ function rafLoop() { pollPads(); requestAnimationFrame(rafLoop); }
 function onButton(i) {
   if (currentScreen === 'summary' && i === BTN.DOWN) return reopenMatch();
   if (!state.current || currentScreen !== 'live') return;
+  if (hud.open && i === BTN.CROSS) return hudGoal();
+  if (hud.open && i in BTN_TO_EVENT) return rumble('reject'); // stats wait until the stick is let go
   if (i === BTN.OPTIONS) return advanceMatch();
   if (i in BTN_TO_EVENT) return logEvent(BTN_TO_EVENT[i]);
   if (i === BTN.DOWN) return undo();
@@ -487,6 +530,65 @@ function handleMatchButtons(now, t) {
   }
 }
 
+/*
+  Score HUD: hold the left stick towards a side (left is us, right is them)
+  and press ✕ to add a goal for that team. Letting go of the stick closes it.
+*/
+const STICK_OPEN = 0.5, STICK_CLOSE = 0.3; // hysteresis so a drifting stick doesn't flicker
+const SIDE_MIN_X = 0.26;                    // within ~15° of straight up or down is neither side
+const hud = { open: false, side: null };
+
+function updateHud(gp) {
+  const x = (gp.axes && gp.axes[0]) || 0, y = (gp.axes && gp.axes[1]) || 0;
+  const mag = Math.hypot(x, y);
+  const live = state.current && currentScreen === 'live';
+  if (!live || mag < (hud.open ? STICK_CLOSE : STICK_OPEN)) { if (hud.open) closeHud(); return; }
+  if (!hud.open) {
+    hud.open = true;
+    renderHud();
+    $('#hud').classList.add('show');
+  }
+  const side = Math.abs(x) < mag * SIDE_MIN_X ? null : x < 0 ? 'us' : 'them';
+  if (side !== hud.side) {
+    hud.side = side;
+    if (side) rumble('tick');
+    for (const el of document.querySelectorAll('.hud-half')) el.classList.toggle('on', el.dataset.side === side);
+  }
+  const dot = $('#hud-dot');
+  dot.style.left = `calc(${50 + x * 42}% - 14px)`;
+  dot.style.top = `calc(${50 + y * 42}% - 14px)`;
+}
+
+function closeHud() {
+  hud.open = false;
+  hud.side = null;
+  $('#hud').classList.remove('show');
+  for (const el of document.querySelectorAll('.hud-half')) el.classList.remove('on');
+}
+
+function renderHud() {
+  const m = state.current;
+  const sc = scoreline(m);
+  $('#hud-us-name').textContent = teamName(m);
+  $('#hud-them-name').textContent = oppName(m);
+  $('#hud-us').textContent = sc.us;
+  $('#hud-them').textContent = sc.them;
+}
+
+function hudGoal() {
+  const m = state.current;
+  if (!hud.side) { rumble('reject'); return; }
+  addScore(hud.side);
+  renderHud();
+  const half = document.querySelector(`.hud-half[data-side="${hud.side}"]`);
+  half.classList.remove('hit');
+  void half.offsetWidth;
+  half.classList.add('hit');
+  rumble('long');
+  const sc = scoreline(m);
+  toast(`${sideName(m, hud.side)} goal, ${sc.us}–${sc.them}`);
+}
+
 function showHold(label, frac) {
   $('#hold-label').textContent = label;
   $('#hold-fill').style.width = `${Math.min(1, frac) * 100}%`;
@@ -517,6 +619,7 @@ function checkFocus(t) {
   if (!focusWarned && currentScreen === 'live' && t - focusLostAt > 300) {
     focusWarned = true;
     hideHold();
+    closeHud();
     $('#paused').classList.add('show');
     rumble('lost');
   }
@@ -605,13 +708,14 @@ function buildLegend() {
     <h3>Stats</h3>
     <dl>
       ${rows}
-      <dt>${glyph(BTN.DOWN)}</dt><dd>Undo <small>d-pad down arrow, last stat or Options step</small></dd>
+      <dt>${glyph(BTN.DOWN)}</dt><dd>Undo <small>d-pad down arrow, last stat, team goal or Options step</small></dd>
       <dt>${glyph(BTN.UP)}</dt><dd>Redo <small>d-pad up arrow</small></dd>
     </dl>
-    <p class="note">Press only the most specific button. A goal also counts as a shot on goal, a shot and a touch. An assist also counts as a pass.</p>
+    <p class="note">Press only the most specific button. A goal also counts as a shot on goal, a shot and a touch. An assist also counts as a pass and a team goal.</p>
     <h3 class="legend-sub">Match</h3>
     <dl>
       <dt>${glyph(BTN.LEFT)}</dt><dd>Came on or went off <small>d-pad left arrow</small></dd>
+      <dt><span class="glyph shoulder word" aria-hidden="true">L stick</span></dt><dd>Team goals <small>hold left for us or right for them, press ${glyph(BTN.CROSS)}</small></dd>
       <dt>${glyph(BTN.OPTIONS)}</dt><dd>Next step <small>press: kick off, half time, 2nd half kick off, full time</small></dd>
       <dt>${glyph(BTN.R3)}</dt><dd>End match <small>press right stick in, hold 1.5 s</small></dd>
       <dt><span class="combo">${glyph(BTN.L3)}+${glyph(BTN.R3)}</span></dt><dd>Reset stats and clock <small>press both sticks in, hold 2.5 s</small></dd>

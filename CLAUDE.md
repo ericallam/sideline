@@ -26,10 +26,11 @@ Offline PWA for an iPad, used on the touchline to log one player's football stat
 | △ | 3 | Shot, missed/blocked (+touch) |
 | R1 | 5 | Shot on goal, saved (+shot, touch) |
 | R2 | 7 | Goal (+shot on goal, shot, touch). Analog trigger with hysteresis |
-| L1 | 4 | Assist (+pass, touch) |
-| D-pad down | 13 | Undo: last stat or Options step, newest first. On the summary right after full time, reopens the match |
+| L1 | 4 | Assist (+pass, touch, and a linked team goal in `score`) |
+| D-pad down | 13 | Undo: last stat, team goal or Options step, newest first (assist-linked goals go with their assist). On the summary right after full time, reopens the match |
 | D-pad up | 12 | Redo |
 | D-pad left | 14 | Came on / went off (minutes played) |
+| Left stick | axes 0,1 | Hold left or right: score HUD (left = his team, right = opponent). ✕ adds a goal for the highlighted side; other stat buttons are ignored while it's open. Let go to close |
 | Options | 9 | Press: next match step, one way only: kick off → half time → 2nd half kick off → full time (ends the match). No pause, no holds. Exactly two halves |
 | R3 | 11 | Hold 1.5 s: end match |
 | L3 + R3 | 10+11 | Hold 2.5 s: reset match |
@@ -49,9 +50,9 @@ Match {
   startOnPitch, onPitch,
   events: [{ type, period, ms, at }],
   subs:   [{ on, period, ms, at }],
-  score:  [{ side: 'us'|'them', period, ms, at }],  // goals by others; his goals come from events
+  score:  [{ side: 'us'|'them', period, ms, at, assist? }],  // goals by others; his goals come from events; assist: true = added by his assist (same `at`)
   steps:  [{ kind: 'kickoff'|'halfTime', at, prev, next }],  // Options steps for undo/redo; live only
-  redo:   [...]                        // stats or { step }; live match only, stripped on end
+  redo:   [...]                        // stats, { goal } or { step }; live match only, stripped on end
 }
 ```
 `at` (wall clock) orders the timeline; `period` + `ms` (match clock) is what's displayed.
@@ -74,7 +75,7 @@ Match {
 - Guided Access is recommended during matches to block stray swipes.
 
 ## Testing
-- `pnpm install`, then `pnpm exec playwright install chromium` once, then `pnpm test`. Tests run in Chromium with service workers blocked and a fake gamepad; they cover stat cascades, short presses, undo/redo, holds, bench/minutes, score, focus loss, and backup/restore.
+- `pnpm install`, then `pnpm exec playwright install chromium` once, then `pnpm test`. Tests run in Chromium with service workers blocked and a fake gamepad; they cover stat cascades, short presses, undo/redo, match steps, holds, the score HUD, bench/minutes, score, focus loss, and backup/restore.
 - `pnpm dev` serves `public/` on http://localhost:4173. Keyboard fallback for manual testing: `1`–`7` log stats, Backspace undo, Shift+Backspace redo, Space next match step, `b` bench toggle.
 - Chromium is not WebKit. Anything touching gamepad, focus, wake lock, share sheet or SW lifecycle needs a check on the real iPad (standalone) before it's trusted.
 - Update flow (SW version bump → banner → reload) was verified manually in Chromium; there's no automated test for it.

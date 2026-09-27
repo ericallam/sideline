@@ -114,7 +114,7 @@
         <span class="sheet-num" id="sheet-us">0</span>
         <button class="step" data-score="add:us" aria-label="Add team goal">+</button>
       </div>
-      <p class="sheet-note">Includes his <span id="sheet-his">0</span>, logged with R2. Use + for goals by teammates.</p>
+      <p class="sheet-note">Includes his <span id="sheet-his">0</span> (R2) and his assists (L1). Use + for other goals, or hold the left stick and press ✕.</p>
       <div class="sheet-row">
         <span class="sheet-name" id="sheet-them-name">Them</span>
         <button class="step" data-score="remove:them" aria-label="Remove opponent goal">−</button>
@@ -123,6 +123,15 @@
       </div>
       <button class="primary" id="sheet-done">Done</button>
     </div>
+  </div>
+
+  <div class="hud" id="hud" aria-hidden="true">
+    <div class="hud-ring">
+      <div class="hud-half" data-side="us"><span class="hud-name" id="hud-us-name">Us</span><span class="hud-num" id="hud-us">0</span></div>
+      <div class="hud-half" data-side="them"><span class="hud-name" id="hud-them-name">Them</span><span class="hud-num" id="hud-them">0</span></div>
+      <div class="hud-dot" id="hud-dot"></div>
+    </div>
+    <p class="hud-hint">Press ✕ for a goal</p>
   </div>
 
   <div class="hold" id="hold" aria-hidden="true">

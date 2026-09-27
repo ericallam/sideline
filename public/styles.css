@@ -427,6 +427,65 @@ button:focus-visible, input:focus-visible {
 .sheet-note { margin: -0.4rem 0 0.4rem; color: var(--chalk-dim); font-size: 1rem; }
 .sheet-card .primary { align-self: flex-end; }
 
+/* ---------- Score HUD (left stick) ---------- */
+.hud {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1.2rem;
+  background: rgba(10, 30, 16, 0.86);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.hud.show { opacity: 1; }
+.hud-ring {
+  position: relative;
+  width: min(62vmin, 520px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 3px solid var(--chalk-line);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+}
+.hud-half {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0 8%;
+  background: var(--well);
+  transition: background 120ms, color 120ms;
+}
+.hud-half + .hud-half { border-left: 3px solid var(--chalk-line); }
+.hud-half.on { background: var(--chalk); color: var(--pitch); }
+.hud-half.hit { animation: hud-hit 500ms ease-out; }
+@keyframes hud-hit { from { transform: scale(0.94); } to { transform: none; } }
+.hud-name {
+  max-width: 100%;
+  font-size: clamp(1.1rem, 3vmin, 1.7rem);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hud-num { font-size: clamp(3rem, 12vmin, 6.5rem); font-weight: 800; line-height: 1; }
+.hud-dot {
+  position: absolute;
+  left: calc(50% - 14px);
+  top: calc(50% - 14px);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cross);
+  box-shadow: 0 0 0 4px rgba(10, 30, 16, 0.5);
+}
+.hud-hint { margin: 0; font-size: 1.4rem; font-weight: 700; color: var(--chalk-dim); }
+
 /* ---------- Hold-to-confirm ---------- */
 .hold {
   position: fixed;
@@ -541,4 +600,5 @@ button:focus-visible, input:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .tile.hit, .tile.hit .tile-hint, .tile.hit .glyph { animation-duration: 1ms; }
   .toast { transition: none; }
+  .hud-half.hit { animation: none; }
 }
