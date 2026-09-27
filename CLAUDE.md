@@ -27,10 +27,10 @@ Offline PWA for an iPad, used on the touchline to log one player's football stat
 | R1 | 5 | Shot on goal, saved (+shot, touch) |
 | R2 | 7 | Goal (+shot on goal, shot, touch). Analog trigger with hysteresis |
 | L1 | 4 | Assist (+pass, touch) |
-| D-pad down | 13 | Undo |
+| D-pad down | 13 | Undo: last stat or Options step, newest first. On the summary right after full time, reopens the match |
 | D-pad up | 12 | Redo |
 | D-pad left | 14 | Came on / went off (minutes played) |
-| Options | 9 | Tap: start/pause clock. Hold 1.5 s: end half |
+| Options | 9 | Press: next match step, one way only: kick off → half time → 2nd half kick off → full time (ends the match). No pause, no holds. Exactly two halves |
 | R3 | 11 | Hold 1.5 s: end match |
 | L3 + R3 | 10+11 | Hold 2.5 s: reset match |
 
@@ -50,7 +50,8 @@ Match {
   events: [{ type, period, ms, at }],
   subs:   [{ on, period, ms, at }],
   score:  [{ side: 'us'|'them', period, ms, at }],  // goals by others; his goals come from events
-  redo:   [...]                        // live match only, stripped on end
+  steps:  [{ kind: 'kickoff'|'halfTime', at, prev, next }],  // Options steps for undo/redo; live only
+  redo:   [...]                        // stats or { step }; live match only, stripped on end
 }
 ```
 `at` (wall clock) orders the timeline; `period` + `ms` (match clock) is what's displayed.
@@ -74,6 +75,6 @@ Match {
 
 ## Testing
 - `pnpm install`, then `pnpm exec playwright install chromium` once, then `pnpm test`. Tests run in Chromium with service workers blocked and a fake gamepad; they cover stat cascades, short presses, undo/redo, holds, bench/minutes, score, focus loss, and backup/restore.
-- `pnpm dev` serves `public/` on http://localhost:4173. Keyboard fallback for manual testing: `1`–`7` log stats, Backspace undo, Shift+Backspace redo, Space clock, `b` bench toggle.
+- `pnpm dev` serves `public/` on http://localhost:4173. Keyboard fallback for manual testing: `1`–`7` log stats, Backspace undo, Shift+Backspace redo, Space next match step, `b` bench toggle.
 - Chromium is not WebKit. Anything touching gamepad, focus, wake lock, share sheet or SW lifecycle needs a check on the real iPad (standalone) before it's trusted.
 - Update flow (SW version bump → banner → reload) was verified manually in Chromium; there's no automated test for it.

@@ -36,7 +36,7 @@ test('undo (d-pad down) and redo (d-pad up); a new stat clears redo', async ({ p
   expect(await count(page, 'goal')).toBe('0');
 });
 
-test('Options tap toggles clock; holds end half, end match; L3+R3 resets', async ({ page }) => {
+test('Options steps kick off, half time, 2nd half, full time; L3+R3 resets', async ({ page }) => {
   await startMatch(page);
   await press(page, BTN.OPTIONS);
   expect((await stored(page)).current.running).toBe(true);
@@ -47,14 +47,61 @@ test('Options tap toggles clock; holds end half, end match; L3+R3 resets', async
   expect(cur.events).toHaveLength(0);
   expect(cur.running).toBe(false);
 
-  await hold(page, [BTN.OPTIONS], 1700);
-  expect((await stored(page)).current.period).toBe(2);
+  await press(page, BTN.OPTIONS); // kick off
+  await press(page, BTN.OPTIONS); // half time
+  cur = (await stored(page)).current;
+  expect(cur.period).toBe(2);
+  expect(cur.running).toBe(false);
 
-  await hold(page, [BTN.R3], 1700);
+  await hold(page, [BTN.OPTIONS], 1700); // a long press is still one step
+  cur = (await stored(page)).current;
+  expect(cur.period).toBe(2);
+  expect(cur.running).toBe(true);
+
+  await press(page, BTN.OPTIONS); // full time
   const st = await stored(page);
   expect(st.current).toBeNull();
   expect(st.history).toHaveLength(1);
   await expect(page.locator('#screen-summary')).toBeVisible();
+});
+
+test('undo steps back through Options steps, including full time', async ({ page }) => {
+  await startMatch(page);
+  await press(page, BTN.OPTIONS); // kick off
+  await advance(page, 10);
+  await press(page, BTN.CROSS);
+  await press(page, BTN.OPTIONS); // half time, by mistake
+
+  await press(page, BTN.DOWN);
+  let cur = (await stored(page)).current;
+  expect(cur.period).toBe(1);
+  expect(cur.running).toBe(true);
+  expect(cur.events).toHaveLength(1);
+  await expect(page.locator('#clock')).toHaveText('10:00'); // as if never pressed
+
+  await press(page, BTN.UP); // redo half time
+  cur = (await stored(page)).current;
+  expect(cur.period).toBe(2);
+  expect(cur.running).toBe(false);
+
+  await press(page, BTN.DOWN); // half time
+  await press(page, BTN.DOWN); // then the pass
+  cur = (await stored(page)).current;
+  expect(cur.period).toBe(1);
+  expect(cur.events).toHaveLength(0);
+
+  await press(page, BTN.OPTIONS); // half time
+  await press(page, BTN.OPTIONS); // 2nd half kick off
+  await advance(page, 5);
+  await press(page, BTN.OPTIONS); // full time
+  await expect(page.locator('#screen-summary')).toBeVisible();
+
+  await press(page, BTN.DOWN);
+  await expect(page.locator('#screen-live')).toBeVisible();
+  const st = await stored(page);
+  expect(st.history).toHaveLength(0);
+  expect(st.current.period).toBe(2);
+  expect(st.current.running).toBe(true);
 });
 
 test('bench blocks stats; minutes played follow subs across halves', async ({ page }) => {
@@ -68,7 +115,7 @@ test('bench blocks stats; minutes played follow subs across halves', async ({ pa
   await press(page, BTN.CROSS);
   expect(await count(page, 'pass')).toBe('1');
   await advance(page, 20);
-  await hold(page, [BTN.OPTIONS], 1700); // half ends at 25'
+  await press(page, BTN.OPTIONS); // half ends at 25'
   await press(page, BTN.OPTIONS);
   await advance(page, 10);
   await press(page, BTN.LEFT); // off at 10' of 2H
@@ -125,4 +172,30 @@ test('backup and restore round-trip without duplicates', async ({ page }) => {
   await page.setInputFiles('#restore-file', file);
   await page.waitForTimeout(200);
   expect((await stored(page)).history).toHaveLength(1);
+});
+
+test('saved matches with a period 3 fold into the 2nd half', async ({ page }) => {
+  const min = 60000, at = Date.now();
+  const m = {
+    id: '1', player: '', team: '', opponent: 'Lions', startedAt: new Date().toISOString(),
+    period: 3, running: false, accMs: 5 * min, runStart: 0,
+    periodEnds: { 1: 25 * min, 2: 2 * min, 3: 5 * min },
+    startOnPitch: true, onPitch: true,
+    events: [
+      { type: 'pass', period: 1, ms: min, at },
+      { type: 'pass', period: 2, ms: min, at: at + 1 },
+      { type: 'pass', period: 3, ms: min, at: at + 2 },
+    ],
+    subs: [{ on: false, period: 3, ms: 0, at: at + 3 }, { on: true, period: 3, ms: min, at: at + 4 }],
+    score: [],
+  };
+  await page.evaluate(m => localStorage.setItem('sideline:v1', JSON.stringify({ current: null, history: [m], prefs: {} })), m);
+  await page.reload();
+
+  const h = await page.evaluate(() => state.history[0]);
+  expect(h.period).toBe(2);
+  expect(h.periodEnds).toEqual({ 1: 25 * min, 2: 7 * min });
+  expect(h.events.map(e => [e.period, e.ms])).toEqual([[1, min], [2, min], [2, 3 * min]]);
+  expect(h.subs.map(s => [s.period, s.ms])).toEqual([[2, 2 * min], [2, 3 * min]]);
+  expect(await page.evaluate(() => minutesOn(state.history[0]).total)).toBe(31 * min);
 });

@@ -47,6 +47,7 @@ const KEY_TO_EVENT = Object.fromEntries(Object.entries(EVENTS).map(([id, e]) => 
 ------------------------------------------------------------------- */
 
 const STORE_KEY = 'sideline:v1';
+const HALVES = 2;
 let state = load();
 
 function load() {
@@ -55,13 +56,43 @@ function load() {
     if (raw) {
       const s = JSON.parse(raw);
       return {
-        current: s.current || null,
-        history: Array.isArray(s.history) ? s.history : [],
+        current: foldExtraHalves(s.current || null),
+        history: Array.isArray(s.history) ? s.history.map(foldExtraHalves) : [],
         prefs: s.prefs || {},
       };
     }
   } catch (e) { /* fall through */ }
   return { current: null, history: [], prefs: {} };
+}
+
+/*
+  Football has two halves. Earlier builds let "end half" run again in the
+  2nd half, which made a period 3 and beyond. Fold those back into the 2nd
+  half, shifting their clock times on by the length of the periods before.
+*/
+function foldExtraHalves(m) {
+  if (!m || !(m.period > HALVES)) return m;
+  const ends = m.periodEnds || {};
+  const offset = {};
+  let acc = 0;
+  for (let p = HALVES; p <= m.period; p++) {
+    offset[p] = acc;
+    acc += ends[p] || 0;
+  }
+  for (const list of [m.events, m.subs, m.score, m.redo]) {
+    for (const x of list || []) {
+      if (!(x.period > HALVES)) continue;
+      x.ms += offset[x.period] || 0;
+      x.period = HALVES;
+    }
+  }
+  const ended = ends[m.period] != null;
+  m.accMs = (m.accMs || 0) + offset[m.period];
+  for (let p = HALVES; p <= m.period; p++) delete ends[p];
+  if (ended) ends[HALVES] = acc;
+  m.periodEnds = ends;
+  m.period = HALVES;
+  return m;
 }
 
 function save() {
@@ -174,40 +205,60 @@ function fmtClock(ms) {
 function periodLabel(p) { return p === 1 ? '1st half' : p === 2 ? '2nd half' : `Period ${p}`; }
 function periodShort(p) { return p === 1 ? '1H' : p === 2 ? '2H' : `P${p}`; }
 
-function toggleClock() {
-  const m = state.current;
-  if (!m) return;
-  if (m.running) {
-    m.accMs = elapsedMs(m);
-    m.running = false;
-  } else {
-    m.runStart = Date.now();
-    m.running = true;
-  }
-  save();
-  renderClock();
-  toast(m.running ? 'Clock running' : 'Clock paused');
+/*
+  Options walks the match forward one step at a time, never back:
+  kick off, half time, 2nd half kick off, full time. Undo steps back.
+*/
+function nextStep(m) {
+  if (!m.running) return 'kickoff';
+  return m.period < HALVES ? 'halfTime' : 'fullTime';
+}
+function stepLabel(m) {
+  const k = nextStep(m);
+  if (k === 'kickoff') return m.accMs ? 'Restart clock' : m.period === 1 ? 'Kick off' : 'Kick off 2nd half';
+  return k === 'halfTime' ? 'Half time' : 'Full time';
+}
+function clockState(m) {
+  return { period: m.period, running: m.running, accMs: m.accMs, runStart: m.runStart, periodEnds: { ...(m.periodEnds || {}) } };
 }
 
-function endHalf() {
+function advanceMatch() {
   const m = state.current;
   if (!m) return;
-  (m.periodEnds = m.periodEnds || {})[m.period] = elapsedMs(m);
-  m.accMs = 0;
-  m.running = false;
-  m.period += 1;
+  const kind = nextStep(m);
+  if (kind === 'fullTime') { rumble('long'); return endMatch(); }
+  const prev = clockState(m);
+  if (kind === 'kickoff') {
+    m.runStart = Date.now();
+    m.running = true;
+  } else {
+    (m.periodEnds = m.periodEnds || {})[m.period] = elapsedMs(m);
+    m.accMs = 0;
+    m.running = false;
+    m.period += 1;
+  }
+  (m.steps = m.steps || []).push({ kind, at: Date.now(), prev, next: clockState(m) });
+  m.redo = [];
   save();
   renderLive();
-  toast(`${periodLabel(m.period)} ready. Press Options at kickoff.`);
+  rumble(kind === 'halfTime' ? 'long' : 'tap');
+  toast(kind === 'halfTime' ? 'Half time. Press Options at the 2nd half kick off.' : `${periodLabel(m.period)} kicked off`);
 }
+
+const STEP_NAME = { kickoff: 'kick off', halfTime: 'half time' };
+
+// Full time can be undone from the summary straight after, back into the 2nd half
+let justEnded = null;
 
 function endMatch() {
   const m = state.current;
   if (!m) return;
+  justEnded = { id: m.id, prev: clockState(m) };
   m.accMs = elapsedMs(m);
   m.running = false;
   (m.periodEnds = m.periodEnds || {})[m.period] = m.accMs;
   delete m.redo;
+  delete m.steps;
   state.history.push(m);
   state.current = null;
   save();
@@ -220,6 +271,7 @@ function resetMatch() {
   if (!m) return;
   m.events = [];
   m.redo = [];
+  m.steps = [];
   m.subs = [];
   m.score = [];
   m.periodEnds = {};
@@ -262,8 +314,36 @@ function logEvent(type) {
   rumble(type === 'goal' ? 'long' : 'tap');
 }
 
+function reopenMatch() {
+  const i = justEnded ? state.history.findIndex(m => m.id === justEnded.id) : -1;
+  if (i < 0 || state.current) { rumble('double'); return; }
+  const [m] = state.history.splice(i, 1);
+  Object.assign(m, justEnded.prev, { redo: [], steps: [] });
+  justEnded = null;
+  state.current = m;
+  save();
+  renderLive();
+  show('live');
+  keepAwake();
+  rumble('double');
+  toast(`Back to the ${periodLabel(m.period).toLowerCase()}`);
+}
+
+// Undo walks back through stats and Options steps together, newest first
 function undo() {
   const m = state.current;
+  const step = m && m.steps && m.steps[m.steps.length - 1];
+  const last = m && m.events[m.events.length - 1];
+  if (step && step.at > (last ? last.at : 0)) {
+    m.steps.pop();
+    Object.assign(m, step.prev);
+    (m.redo = m.redo || []).push({ step });
+    save();
+    renderLive();
+    toast(`Undid ${STEP_NAME[step.kind]}`);
+    rumble('double');
+    return;
+  }
   if (!m || !m.events.length) { rumble('double'); return; }
   const ev = m.events.pop();
   (m.redo = m.redo || []).push(ev);
@@ -280,6 +360,15 @@ function redo() {
   const m = state.current;
   if (!m || !m.redo || !m.redo.length) { rumble('double'); toast('Nothing to redo'); return; }
   const ev = m.redo.pop();
+  if (ev.step) {
+    Object.assign(m, ev.step.next);
+    (m.steps = m.steps || []).push(ev.step);
+    save();
+    renderLive();
+    toast(`Redid ${STEP_NAME[ev.step.kind]}`);
+    rumble('tap');
+    return;
+  }
   m.events.push(ev);
   save();
   renderCounts();
@@ -337,7 +426,9 @@ function pollPads() {
 function rafLoop() { pollPads(); requestAnimationFrame(rafLoop); }
 
 function onButton(i) {
+  if (currentScreen === 'summary' && i === BTN.DOWN) return reopenMatch();
   if (!state.current || currentScreen !== 'live') return;
+  if (i === BTN.OPTIONS) return advanceMatch();
   if (i in BTN_TO_EVENT) return logEvent(BTN_TO_EVENT[i]);
   if (i === BTN.DOWN) return undo();
   if (i === BTN.UP) return redo();
@@ -347,8 +438,7 @@ function onButton(i) {
 /*
   Match controls avoid Create and PS: iPadOS uses those for screenshots,
   recordings and the system menu, which pull focus away from the app.
-    tap Options      start / pause clock
-    hold Options     end half
+    press Options    next match step (see advanceMatch)
     hold R3          end match   (press right stick in)
     hold L3 + R3     reset match (press both sticks in)
 */
@@ -356,24 +446,22 @@ const TAP_MS = 400;
 const HOLD_MS = 1500;
 const RESET_MS = 2500;
 const HOLDS = {
-  endHalf:  { label: 'Keep holding to end the half',    ms: HOLD_MS,  run: () => endHalf() },
   endMatch: { label: 'Keep holding to end the match',   ms: HOLD_MS,  run: () => endMatch() },
   reset:    { label: 'Keep holding to reset all stats', ms: RESET_MS, run: () => resetMatch() },
 };
 const sys = { down: {}, combo: false, fired: false, ticked: false };
 
 function handleMatchButtons(now, t) {
-  const o = !!now[BTN.OPTIONS], l3 = !!now[BTN.L3], r3 = !!now[BTN.R3];
+  const l3 = !!now[BTN.L3], r3 = !!now[BTN.R3];
   const live = state.current && currentScreen === 'live';
 
-  for (const [b, p] of [[BTN.OPTIONS, o], [BTN.L3, l3], [BTN.R3, r3]]) {
+  for (const [b, p] of [[BTN.L3, l3], [BTN.R3, r3]]) {
     if (p && !sys.down[b]) sys.down[b] = t;
   }
 
   let action = null, since = 0;
   if (l3 && r3) { sys.combo = true; action = 'reset'; since = Math.max(sys.down[BTN.L3], sys.down[BTN.R3]); }
-  else if (!sys.combo && o && !l3 && !r3) { action = 'endHalf'; since = sys.down[BTN.OPTIONS]; }
-  else if (!sys.combo && r3 && !o) { action = 'endMatch'; since = sys.down[BTN.R3]; }
+  else if (!sys.combo && r3) { action = 'endMatch'; since = sys.down[BTN.R3]; }
 
   if (!action && sys.ticked && !sys.fired) { hideHold(); sys.ticked = false; }
 
@@ -391,14 +479,9 @@ function handleMatchButtons(now, t) {
     }
   }
 
-  // Options released quickly on its own = tap
-  if (!o && sys.down[BTN.OPTIONS]) {
-    if (live && !sys.fired && !sys.combo && t - sys.down[BTN.OPTIONS] < TAP_MS) { rumble('tap'); toggleClock(); }
-    sys.down[BTN.OPTIONS] = 0;
-  }
   if (!l3) sys.down[BTN.L3] = 0;
   if (!r3) sys.down[BTN.R3] = 0;
-  if (!o && !l3 && !r3) {
+  if (!l3 && !r3) {
     if (!sys.fired && sys.ticked) hideHold();
     sys.combo = false; sys.fired = false; sys.ticked = false;
   }
@@ -468,7 +551,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Backspace' && e.shiftKey) redo();
   else if (e.key === 'b') toggleOnPitch();
   else if (e.key === 'Backspace') undo();
-  else if (e.key === ' ') { e.preventDefault(); toggleClock(); }
+  else if (e.key === ' ') { e.preventDefault(); advanceMatch(); }
 });
 
 /* ------------------------------------------------------------------
@@ -507,6 +590,7 @@ function esc(s) {
 
 function show(name) {
   currentScreen = name;
+  if (name !== 'summary') justEnded = null;
   for (const el of document.querySelectorAll('.screen')) el.hidden = el.id !== `screen-${name}`;
   window.scrollTo(0, 0);
   renderUpdateUI();
@@ -521,15 +605,14 @@ function buildLegend() {
     <h3>Stats</h3>
     <dl>
       ${rows}
-      <dt>${glyph(BTN.DOWN)}</dt><dd>Undo last stat <small>d-pad down arrow</small></dd>
+      <dt>${glyph(BTN.DOWN)}</dt><dd>Undo <small>d-pad down arrow, last stat or Options step</small></dd>
       <dt>${glyph(BTN.UP)}</dt><dd>Redo <small>d-pad up arrow</small></dd>
     </dl>
     <p class="note">Press only the most specific button. A goal also counts as a shot on goal, a shot and a touch. An assist also counts as a pass.</p>
     <h3 class="legend-sub">Match</h3>
     <dl>
       <dt>${glyph(BTN.LEFT)}</dt><dd>Came on or went off <small>d-pad left arrow</small></dd>
-      <dt>${glyph(BTN.OPTIONS)}</dt><dd>Start or pause clock <small>press</small></dd>
-      <dt>${glyph(BTN.OPTIONS)}</dt><dd>End half <small>hold 1.5 s</small></dd>
+      <dt>${glyph(BTN.OPTIONS)}</dt><dd>Next step <small>press: kick off, half time, 2nd half kick off, full time</small></dd>
       <dt>${glyph(BTN.R3)}</dt><dd>End match <small>press right stick in, hold 1.5 s</small></dd>
       <dt><span class="combo">${glyph(BTN.L3)}+${glyph(BTN.R3)}</span></dt><dd>Reset stats and clock <small>press both sticks in, hold 2.5 s</small></dd>
     </dl>
@@ -598,7 +681,7 @@ function renderLog() {
   const items = timeline(state.current, true).slice(-7).reverse();
   $('#log').innerHTML = items.length
     ? items.map(timelineItem).join('')
-    : `<li class="empty">Press a controller button to log a stat. Press Options to start the clock.</li>`;
+    : `<li class="empty">Press a controller button to log a stat. Press Options at kick off.</li>`;
 }
 
 function renderClock() {
@@ -612,7 +695,7 @@ function renderClock() {
   pill.classList.toggle('off', m.onPitch === false);
   $('#pitch-state').textContent = m.onPitch === false ? 'On bench' : 'On pitch';
   $('#pitch-mins').textContent = `${fmtMin(mins && mins.total)} min played`;
-  $('#btn-clock-label').textContent = m.running ? 'Pause clock' : 'Start clock';
+  $('#btn-clock-label').textContent = stepLabel(m);
 }
 
 function renderLive() {
@@ -863,7 +946,7 @@ async function restoreFrom(file) {
     return toast('That file is not a Sideline backup.');
   }
   const have = new Set(state.history.map(m => m.id));
-  const incoming = data.history.filter(m => m && m.id && Array.isArray(m.events) && !have.has(m.id));
+  const incoming = data.history.filter(m => m && m.id && Array.isArray(m.events) && !have.has(m.id)).map(foldExtraHalves);
   state.history.push(...incoming);
   state.history.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   save();
@@ -906,9 +989,10 @@ $('#btn-new').addEventListener('click', () => {
   keepAwake();
 });
 
-$('#btn-clock').addEventListener('click', toggleClock);
-$('#btn-half').addEventListener('click', () => {
-  if (confirm(`End the ${periodLabel(state.current.period).toLowerCase()}?`)) endHalf();
+$('#btn-clock').addEventListener('click', () => {
+  const m = state.current;
+  if (nextStep(m) === 'fullTime' && !confirm('Full time: end the match and save it?')) return;
+  advanceMatch();
 });
 $('#btn-end').addEventListener('click', () => {
   if (confirm('End the match and save it?')) endMatch();
