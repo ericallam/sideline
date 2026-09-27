@@ -1,0 +1,16 @@
+{
+  "name": "Sideline",
+  "short_name": "Sideline",
+  "description": "Log your player's match stats with a PS5 controller.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1f5130",
+  "theme_color": "#1f5130",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

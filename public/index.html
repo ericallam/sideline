@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Sideline">
+  <meta name="theme-color" content="#1f5130">
+  <title>Sideline</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- New match -->
+  <section id="screen-setup" class="screen setup" hidden>
+    <div class="setup-main">
+      <p class="notice" id="notice-tab" hidden>This is open in a Safari tab, where the address bar can steal controller input. Tap Share, then Add to Home Screen, and open Sideline from there.</p>
+      <h1>Sideline</h1>
+      <div class="fields">
+        <label class="field">
+          <span>Player</span>
+          <input id="player" type="text" placeholder="Optional" autocomplete="off" autocapitalize="words">
+        </label>
+        <label class="field">
+          <span>Your team</span>
+          <input id="team" type="text" placeholder="Optional" autocomplete="off" autocapitalize="words">
+        </label>
+        <label class="field">
+          <span>Opponent</span>
+          <input id="opponent" type="text" placeholder="Optional" autocomplete="off" autocapitalize="words">
+        </label>
+      </div>
+      <label class="check"><input id="bench" type="checkbox"><span>Starts on the bench</span></label>
+      <button id="btn-new" class="primary">Start match</button>
+      <p class="pad-status" data-pad-status>Press any button on the controller to connect it</p>
+      <button id="btn-history" class="link">Past matches</button>
+    </div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <!-- Live match -->
+  <section id="screen-live" class="screen live" hidden>
+    <header class="bar">
+      <div class="bar-left">
+        <button class="score" id="btn-score" aria-label="Score, tap to change">
+          <span class="score-nums"><span id="score-us">0</span>–<span id="score-them">0</span></span>
+          <span class="vs" id="live-vs"></span>
+        </button>
+        <button class="pitch-pill" id="pitch-pill">
+          <span class="pitch-state" id="pitch-state">On pitch</span>
+          <small id="pitch-mins">0 min played</small>
+        </button>
+        <div class="pad-dot" data-pad-dot title="Controller"></div>
+      </div>
+      <div class="clock" id="clock-wrap">
+        <span class="period" id="period"></span>
+        <span class="time" id="clock">00:00</span>
+      </div>
+      <div class="bar-right">
+        <button id="btn-clock" class="ghost ctl"><span id="btn-clock-label">Start clock</span><small>Press Options</small></button>
+        <button id="btn-half" class="ghost ctl"><span>End half</span><small>Hold Options</small></button>
+        <button id="btn-end" class="ghost ctl"><span>End match</span><small>Hold R3</small></button>
+        <button id="btn-reset" class="ghost ctl danger"><span>Reset</span><small>Hold L3 + R3</small></button>
+      </div>
+    </header>
+
+    <main class="grid" id="grid"></main>
+  </section>
+
+  <!-- Summary -->
+  <section id="screen-summary" class="screen summary" hidden>
+    <header class="summary-head">
+      <div>
+        <h2 id="sum-title"></h2>
+        <p id="sum-date"></p>
+      </div>
+      <div class="summary-actions">
+        <button id="btn-card" class="ghost">Share card</button>
+        <button id="btn-export" class="ghost">Export CSV</button>
+        <button id="btn-delete" class="ghost danger">Delete</button>
+        <button id="btn-done" class="primary">Done</button>
+      </div>
+    </header>
+    <div class="summary-body">
+      <table class="totals" id="sum-table"></table>
+      <ol class="timeline" id="sum-timeline"></ol>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="screen-history" class="screen history" hidden>
+    <header class="summary-head">
+      <h2>Past matches</h2>
+      <div class="summary-actions">
+        <button id="btn-backup" class="ghost">Back up all</button>
+        <button id="btn-restore" class="ghost">Restore</button>
+        <input id="restore-file" type="file" accept="application/json,.json" hidden>
+        <button id="btn-history-back" class="primary">New match</button>
+      </div>
+    </header>
+    <ul class="history-list" id="history-list"></ul>
+  </section>
+
+  <div class="sheet" id="score-sheet" role="dialog" aria-label="Score">
+    <div class="sheet-card">
+      <h3>Score</h3>
+      <div class="sheet-row">
+        <span class="sheet-name" id="sheet-us-name">Us</span>
+        <button class="step" data-score="remove:us" aria-label="Remove team goal">−</button>
+        <span class="sheet-num" id="sheet-us">0</span>
+        <button class="step" data-score="add:us" aria-label="Add team goal">+</button>
+      </div>
+      <p class="sheet-note">Includes his <span id="sheet-his">0</span>, logged with R2. Use + for goals by teammates.</p>
+      <div class="sheet-row">
+        <span class="sheet-name" id="sheet-them-name">Them</span>
+        <button class="step" data-score="remove:them" aria-label="Remove opponent goal">−</button>
+        <span class="sheet-num" id="sheet-them">0</span>
+        <button class="step" data-score="add:them" aria-label="Add opponent goal">+</button>
+      </div>
+      <button class="primary" id="sheet-done">Done</button>
+    </div>
+  </div>
+
+  <div class="hold" id="hold" aria-hidden="true">
+    <span id="hold-label"></span>
+    <div class="hold-track"><div class="hold-fill" id="hold-fill"></div></div>
+  </div>
+
+  <div class="focus-lost" id="paused" role="alertdialog" aria-label="Controller input paused">
+    <div>
+      <strong>Controller input paused</strong>
+      <span>Something else took focus. Tap anywhere to keep logging.</span>
+    </div>
+  </div>
+
+  <div class="update-banner" id="update-banner" hidden>
+    <span id="update-text">A new version is ready.</span>
+    <button class="primary" id="btn-update">Update now</button>
+  </div>
+
+  <button class="version" id="version" aria-label="App version"></button>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

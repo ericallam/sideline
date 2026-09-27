@@ -1,0 +1,14 @@
+{
+  "name": "sideline",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "description": "Offline iPad PWA for logging a player's football stats with a PS5 controller",
+  "scripts": {
+    "dev": "serve public -l 4173",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0",
+    "serve": "^14.2.4"
+  }
+}
