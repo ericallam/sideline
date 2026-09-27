@@ -38,6 +38,8 @@ Offline PWA for an iPad, used on the touchline to log one player's football stat
 Free and safe to assign: L2 (6), D-pad right (15).
 **Do not use Create (8) or PS (16).** iPadOS uses them for screenshots/recording and system menus, which steal focus from the app and kill controller input. Destructive or match-level actions use holds (with a progress overlay and rumble) instead of confirm dialogs, because a dialog can't be answered with the controller.
 
+Stats and team goals only go in while the clock runs (not before kick off, not at half time); the grid shows a "Not kicked off" / "Half time" banner and rejects them. Bench toggles, undo/redo and Options still work when stopped. Team goals (HUD, score sheet) go in while he's on the bench; only his own stats are blocked there.
+
 "Press only the most specific button": each event rolls up into several totals via `EVENTS[type].counts`. Tiles show totals.
 
 ## Data model (localStorage key `sideline:v1`)

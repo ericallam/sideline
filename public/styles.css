@@ -293,7 +293,7 @@ button:focus-visible, input:focus-visible {
 @keyframes hit-glyph { 0% { background: var(--pitch); } }
 
 .grid { position: relative; }
-.bench-banner {
+.bench-banner, .stop-banner {
   position: absolute;
   inset: 0;
   display: none;
@@ -303,10 +303,12 @@ button:focus-visible, input:focus-visible {
   text-align: center;
   pointer-events: none;
 }
-.bench-banner strong { font-size: clamp(3rem, 8vw, 6rem); font-weight: 800; line-height: 1; }
-.bench-banner span { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; }
+.bench-banner strong, .stop-banner strong { font-size: clamp(3rem, 8vw, 6rem); font-weight: 800; line-height: 1; }
+.bench-banner span, .stop-banner span { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 1.5rem; }
 .grid.bench .tile, .grid.bench .log { opacity: 0.22; }
 .grid.bench .bench-banner { display: grid; }
+.grid.stopped .tile { opacity: 0.22; }
+.grid.stopped .stop-banner { display: grid; }
 
 .log {
   border: 2px dashed var(--chalk-line);

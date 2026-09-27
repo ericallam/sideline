@@ -37,7 +37,7 @@ test('undo (d-pad down) and redo (d-pad up); a new stat clears redo', async ({ p
 });
 
 test('Options steps kick off, half time, 2nd half, full time; L3+R3 resets', async ({ page }) => {
-  await startMatch(page);
+  await startMatch(page, { kickoff: false });
   await press(page, BTN.OPTIONS);
   expect((await stored(page)).current.running).toBe(true);
 
@@ -66,7 +66,7 @@ test('Options steps kick off, half time, 2nd half, full time; L3+R3 resets', asy
 });
 
 test('undo steps back through Options steps, including full time', async ({ page }) => {
-  await startMatch(page);
+  await startMatch(page, { kickoff: false });
   await press(page, BTN.OPTIONS); // kick off
   await advance(page, 10);
   await press(page, BTN.CROSS);
@@ -105,7 +105,7 @@ test('undo steps back through Options steps, including full time', async ({ page
 });
 
 test('bench blocks stats; minutes played follow subs across halves', async ({ page }) => {
-  await startMatch(page, { bench: true });
+  await startMatch(page, { bench: true, kickoff: false });
   await press(page, BTN.OPTIONS);
   await advance(page, 5);
   await press(page, BTN.CROSS);
@@ -283,4 +283,50 @@ test('controls and help open from the live screen; a controller press closes the
   await page.click('#btn-help');
   await page.click('#help-done');
   await expect(page.locator('#help-sheet')).not.toHaveClass(/show/);
+});
+
+test('no stats or goals before kick off or at half time; bench and undo still work', async ({ page }) => {
+  await startMatch(page, { kickoff: false });
+  await expect(page.locator('#stop-title')).toHaveText('Not kicked off');
+  await press(page, BTN.CROSS);
+  await stick(page, -0.9, 0);
+  await expect(page.locator('#hud')).not.toHaveClass(/show/);
+  await press(page, BTN.CROSS);
+  await stick(page, 0, 0);
+  expect(await count(page, 'pass')).toBe('0');
+  await expect(page.locator('#score-us')).toHaveText('0');
+
+  await press(page, BTN.OPTIONS); // kick off
+  await expect(page.locator('#grid')).not.toHaveClass(/stopped/);
+  await press(page, BTN.CROSS);
+  await press(page, BTN.OPTIONS); // half time
+  await expect(page.locator('#stop-title')).toHaveText('Half time');
+  await press(page, BTN.SQUARE);
+  await page.click('#btn-score');
+  await page.click('[data-score="add:them"]');
+  await page.click('#sheet-done');
+  expect(await count(page, 'tackle')).toBe('0');
+  await expect(page.locator('#score-them')).toHaveText('0');
+
+  await press(page, BTN.LEFT); // subbed off at the break
+  expect((await stored(page)).current.onPitch).toBe(false);
+  await press(page, BTN.DOWN); // undo still works: takes back half time
+  expect((await stored(page)).current.period).toBe(1);
+});
+
+test('team goals still go in while he is on the bench', async ({ page }) => {
+  await startMatch(page, { bench: true });
+  await press(page, BTN.CROSS); // his stats are blocked
+  expect(await count(page, 'pass')).toBe('0');
+
+  await stick(page, -0.9, 0);
+  await press(page, BTN.CROSS);
+  await stick(page, 0.9, 0);
+  await press(page, BTN.CROSS);
+  await stick(page, 0, 0);
+  await page.click('#btn-score');
+  await page.click('[data-score="add:us"]');
+  await page.click('#sheet-done');
+  await expect(page.locator('#score-us')).toHaveText('2');
+  await expect(page.locator('#score-them')).toHaveText('1');
 });

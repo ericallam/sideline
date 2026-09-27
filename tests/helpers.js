@@ -24,12 +24,14 @@ async function openApp(page) {
   await page.waitForTimeout(200);
 }
 
-async function startMatch(page, { player = '', team = '', opponent = '', bench = false } = {}) {
+// Kicks off by default, since stats only go in while the clock runs
+async function startMatch(page, { player = '', team = '', opponent = '', bench = false, kickoff = true } = {}) {
   await page.fill('#player', player);
   await page.fill('#team', team);
   await page.fill('#opponent', opponent);
   if (bench) await page.check('#bench');
   await page.click('#btn-new');
+  if (kickoff) await press(page, BTN.OPTIONS);
 }
 
 const press = (page, btn, ms) => page.evaluate(([b, m]) => window.__press(b, m), [btn, ms ?? 40]);

@@ -175,6 +175,7 @@ function toggleOnPitch() {
 function addScore(side) {
   const m = state.current;
   if (!m) return;
+  if (!m.running) return rejectStopped(m);
   m.score = m.score || [];
   m.score.push({ side, ...stamp(m) });
   m.redo = []; // a new goal ends the redo chain
@@ -256,6 +257,17 @@ function advanceMatch() {
 
 const STEP_NAME = { kickoff: 'kick off', halfTime: 'half time' };
 
+// Stats and goals only go in while the clock runs: not before kick off, not at half time
+function stoppedText(m) {
+  if (m.accMs) return ['Clock stopped', 'Press Options to restart it'];
+  return m.period === 1 ? ['Not kicked off', 'Press Options at kick off'] : ['Half time', 'Press Options at the 2nd half kick off'];
+}
+function rejectStopped(m) {
+  const [title, hint] = stoppedText(m);
+  rumble('reject');
+  toast(`${title}. ${hint}.`);
+}
+
 // Full time can be undone from the summary straight after, back into the 2nd half
 let justEnded = null;
 
@@ -309,6 +321,7 @@ function totals(events, period) {
 function logEvent(type) {
   const m = state.current;
   if (!m) return;
+  if (!m.running) return rejectStopped(m);
   if (m.onPitch === false) {
     rumble('reject');
     toast('On the bench. Press d-pad left when he comes on.');
@@ -537,12 +550,18 @@ function handleMatchButtons(now, t) {
 */
 const STICK_OPEN = 0.5, STICK_CLOSE = 0.3; // hysteresis so a drifting stick doesn't flicker
 const SIDE_MIN_X = 0.26;                    // within ~15° of straight up or down is neither side
-const hud = { open: false, side: null };
+const hud = { open: false, side: null, blocked: false };
 
 function updateHud(gp) {
   const x = (gp.axes && gp.axes[0]) || 0, y = (gp.axes && gp.axes[1]) || 0;
   const mag = Math.hypot(x, y);
   const live = state.current && currentScreen === 'live';
+  if (live && !state.current.running) {
+    if (hud.open) closeHud();
+    if (mag < STICK_CLOSE) hud.blocked = false;
+    else if (mag > STICK_OPEN && !hud.blocked) { hud.blocked = true; rejectStopped(state.current); }
+    return;
+  }
   if (!live || mag < (hud.open ? STICK_CLOSE : STICK_OPEN)) { if (hud.open) closeHud(); return; }
   if (!hud.open) {
     hud.open = true;
@@ -742,7 +761,8 @@ function buildGrid() {
       <ol id="log"></ol>
       <div class="log-actions"><button class="ghost undo" id="btn-undo">${glyph(BTN.DOWN)}Undo</button><button class="ghost undo" id="btn-redo">${glyph(BTN.UP)}Redo</button></div>
     </section>
-    <div class="bench-banner" aria-live="polite"><strong>On the bench</strong><span>Press ${glyph(BTN.LEFT)} when he comes on</span></div>`;
+    <div class="bench-banner" aria-live="polite"><strong>On the bench</strong><span>Press ${glyph(BTN.LEFT)} when he comes on</span></div>
+    <div class="stop-banner" aria-live="polite"><strong id="stop-title"></strong><span id="stop-hint"></span></div>`;
 
   for (const tile of document.querySelectorAll('.tile')) {
     tile.addEventListener('click', () => logEvent(tile.dataset.event));
@@ -810,7 +830,11 @@ function renderLive() {
   const m = state.current;
   for (const t of document.querySelectorAll('.tile.hit')) t.classList.remove('hit');
   $('#live-vs').textContent = `${teamName(m)} vs ${oppName(m)}`;
-  $('#grid').classList.toggle('bench', m.onPitch === false);
+  $('#grid').classList.toggle('stopped', !m.running);
+  $('#grid').classList.toggle('bench', m.running && m.onPitch === false);
+  const [title, hint] = stoppedText(m);
+  $('#stop-title').textContent = title;
+  $('#stop-hint').textContent = hint;
   renderScore();
   renderCounts();
   renderLog();
