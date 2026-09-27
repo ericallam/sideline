@@ -426,6 +426,8 @@ button:focus-visible, input:focus-visible {
 .step:active { background: var(--chalk); color: var(--pitch); }
 .sheet-note { margin: -0.4rem 0 0.4rem; color: var(--chalk-dim); font-size: 1rem; }
 .sheet-card .primary { align-self: flex-end; }
+.help-card { width: min(760px, 100%); max-height: calc(100dvh - 3rem); overflow-y: auto; }
+.help-card .legend { border: 0; padding: 0; background: none; }
 
 /* ---------- Score HUD (left stick) ---------- */
 .hud {

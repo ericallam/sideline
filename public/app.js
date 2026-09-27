@@ -469,6 +469,7 @@ function rafLoop() { pollPads(); requestAnimationFrame(rafLoop); }
 function onButton(i) {
   if (currentScreen === 'summary' && i === BTN.DOWN) return reopenMatch();
   if (!state.current || currentScreen !== 'live') return;
+  closeHelp(); // the controller keeps working; get the help out of the way
   if (hud.open && i === BTN.CROSS) return hudGoal();
   if (hud.open && i in BTN_TO_EVENT) return rumble('reject'); // stats wait until the stick is let go
   if (i === BTN.OPTIONS) return advanceMatch();
@@ -704,7 +705,7 @@ function buildLegend() {
     const e = EVENTS[t.event];
     return `<dt>${glyph(e.btn)}</dt><dd>${t.label} <small>${t.hint.toLowerCase()}</small></dd>`;
   }).join('');
-  $('#legend').innerHTML = `
+  const html = `
     <h3>Stats</h3>
     <dl>
       ${rows}
@@ -715,12 +716,15 @@ function buildLegend() {
     <h3 class="legend-sub">Match</h3>
     <dl>
       <dt>${glyph(BTN.LEFT)}</dt><dd>Came on or went off <small>d-pad left arrow</small></dd>
-      <dt><span class="glyph shoulder word" aria-hidden="true">L stick</span></dt><dd>Team goals <small>hold left for us or right for them, press ${glyph(BTN.CROSS)}</small></dd>
+      <dt><span class="glyph shoulder word" aria-hidden="true">L stick</span></dt><dd>Team goals <small>hold left for us or right for them, press ✕</small></dd>
       <dt>${glyph(BTN.OPTIONS)}</dt><dd>Next step <small>press: kick off, half time, 2nd half kick off, full time</small></dd>
       <dt>${glyph(BTN.R3)}</dt><dd>End match <small>press right stick in, hold 1.5 s</small></dd>
       <dt><span class="combo">${glyph(BTN.L3)}+${glyph(BTN.R3)}</span></dt><dd>Reset stats and clock <small>press both sticks in, hold 2.5 s</small></dd>
     </dl>
     <p class="note">Options is the small button to the right of the touchpad. Avoid Create and PS during a match; iPadOS uses them for screenshots and menus.</p>`;
+  // Same legend on the setup screen and in the live screen's help sheet
+  $('#legend').innerHTML = html;
+  $('#help-legend').innerHTML = html;
 }
 
 function buildGrid() {
@@ -1106,6 +1110,11 @@ $('#btn-reset').addEventListener('click', () => {
 });
 
 $('#btn-done').addEventListener('click', () => show('setup'));
+
+function closeHelp() { $('#help-sheet').classList.remove('show'); }
+$('#btn-help').addEventListener('click', () => $('#help-sheet').classList.add('show'));
+$('#help-done').addEventListener('click', closeHelp);
+$('#help-sheet').addEventListener('click', e => { if (e.target === e.currentTarget) closeHelp(); });
 $('#btn-export').addEventListener('click', () => viewing && exportCSV(viewing));
 $('#btn-card').addEventListener('click', () => viewing && shareCard(viewing));
 $('#btn-backup').addEventListener('click', backupAll);

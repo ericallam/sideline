@@ -269,3 +269,18 @@ test('undo and redo include team goals, newest first', async ({ page }) => {
   await expect(page.locator('#score-us')).toHaveText('1');
   expect(await count(page, 'pass')).toBe('1');
 });
+
+test('controls and help open from the live screen; a controller press closes them', async ({ page }) => {
+  await startMatch(page);
+  await page.click('#btn-help');
+  await expect(page.locator('#help-sheet')).toHaveClass(/show/);
+  await expect(page.locator('#help-legend')).toContainText('Team goals');
+
+  await press(page, BTN.CROSS);
+  await expect(page.locator('#help-sheet')).not.toHaveClass(/show/);
+  expect(await count(page, 'pass')).toBe('1');
+
+  await page.click('#btn-help');
+  await page.click('#help-done');
+  await expect(page.locator('#help-sheet')).not.toHaveClass(/show/);
+});

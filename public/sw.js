@@ -1,6 +1,6 @@
 // The only place the app version lives. Bump it on every deploy
 // (sideline-v6 -> sideline-v7); the app shows it and offers the update.
-const VERSION = 'sideline-v9';
+const VERSION = 'sideline-v10';
 const SHELL = [
   './',
   './index.html',
