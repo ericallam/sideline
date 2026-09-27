@@ -7,7 +7,7 @@ Offline PWA for an iPad, used on the touchline to log one player's football stat
 - **No build step.** Plain HTML/CSS/JS in `public/`, served as static files. Don't introduce a bundler or framework without asking.
 - **Target: iPadOS Safari, installed to the Home Screen (standalone).** Test assumptions against WebKit behaviour, not Chrome.
 - **Eyes-free input first.** Every in-match action must be doable from the controller. On-screen buttons are a fallback.
-- **No audio feedback** (user's explicit choice). Feedback is controller rumble (where iPadOS exposes gamepad haptics) plus a tile flash.
+- **No audio feedback** (user's explicit choice). Feedback is a tile flash (plus controller rumble on platforms that support it, which iPadOS currently doesn't).
 - **Never break stored data.** Users have real matches saved in localStorage. New fields must be optional and read defensively (`m.subs || []`, etc.). Old matches must still render.
 
 ## Files
@@ -71,7 +71,7 @@ Match {
 - In a normal Safari tab the address bar can grab focus. The setup screen warns when not running standalone.
 - `navigator.getGamepads()` is empty until a button is pressed after page load.
 - Wake Lock is requested during a match and re-requested on `visibilitychange`.
-- Gamepad haptics (`vibrationActuator.playEffect`) is progressive enhancement; not yet confirmed on real iPad hardware.
+- Gamepad haptics don't work on iPadOS: WebKit only implements `vibrationActuator` on macOS (WebKit bug 263022, still open). Confirmed on the real iPad: no rumble at all. `rumble()` stays as progressive enhancement, but on the iPad the only feedback is on screen, so don't design anything that depends on feeling a rumble.
 - Guided Access is recommended during matches to block stray swipes.
 
 ## Testing
